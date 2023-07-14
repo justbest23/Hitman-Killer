@@ -1,4 +1,4 @@
-# kill_himan3exe
+# Hitman-Killer
 This is a Python script that creates an exe. The exe looks for a hotkey combination and kills the Hitman3.exe task.
 
 You must have Python installed on your system for this script to work. You can get Python by following these instructions: https://www.digitalocean.com/community/tutorials/install-python-windows-10
