@@ -1,2 +1,2 @@
-game = Discord.exe
-hotkey = ctrl+shift+q
+game = Hitman3.exe
+hotkey = ctrl+q
