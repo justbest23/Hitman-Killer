@@ -44,7 +44,7 @@ def setup_system_tray():
     image_path = os.path.join(script_dir, "Fancy-Logo.jpg")
     image = Image.open(image_path)
     menu = (item('Quit', on_quit_callback),)
-    tray_icon = pystray.Icon("name", image, "Title", menu)
+    tray_icon = pystray.Icon("Hitman-Killer", image, "Hitman-Killer", menu)
 
     # Run the system tray
     tray_icon.run()
