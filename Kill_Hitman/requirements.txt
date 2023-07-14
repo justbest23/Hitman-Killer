@@ -1,0 +1,6 @@
+keyboard
+psutil
+pystray
+Pillow
+pyinstaller
+pywin32
