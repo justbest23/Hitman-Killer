@@ -6,16 +6,30 @@ import pystray
 from pystray import MenuItem as item
 from PIL import Image
 
-## Use the variable to change the hotkey. Do this BEFORE running the "install_the_things.bat" file! ##
+# Read the config.txt file to get the game and hotkey values
+config_file = os.path.join(os.getcwd(), "config.txt")
+
+# Default values if config.txt is not found or there's an error
+game = 'Hitman3.exe'
 hotkey = 'ctrl+q'
 
-## Use the variable to change the game you want to kill. Do this BEFORE running the "install_the_things.bat file! ##
-game = 'Hitman3.exe'
+try:
+    with open(config_file, 'r') as f:
+        config_data = f.readlines()
+    for line in config_data:
+        if line.startswith("game"):
+            game = line.split("=")[1].strip()
+        elif line.startswith("hotkey"):
+            hotkey = line.split("=")[1].strip()
+except FileNotFoundError:
+    print("Config file not found. Using default values.")
+except Exception as e:
+    print("Error reading config file:", e)
 
 def kill_game():
     # Get all running processes
     for proc in psutil.process_iter(['pid', 'name']):
-        # Check if the process is Hitman3.exe
+        # Check if the process is the specified game
         if proc.info['name'] == game:
             # Terminate the process
             proc.kill()
