@@ -5,8 +5,6 @@ import psutil
 import pystray
 from pystray import MenuItem as item
 from PIL import Image
-import shutil
-import winreg
 
 ## Use the variable to change the hotkey. Do this BEFORE running the "install_the_things.bat" file! ##
 hotkey = 'ctrl+q'
@@ -40,6 +38,3 @@ def setup_system_tray():
 if __name__ == '__main__':
     keyboard.add_hotkey(hotkey, kill_game)
     setup_system_tray()
-
-    # Copy the "Fancy-Logo.jpg" file to the executable directory
-    shutil.copy2('Fancy-Logo.jpg', sys.argv[0])
