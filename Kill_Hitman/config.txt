@@ -1,0 +1,2 @@
+game = Discord.exe
+hotkey = ctrl+shift+q
