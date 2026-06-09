@@ -70,7 +70,7 @@ POLL_INTERVAL = 0.05
 # (R > 200, G > 200, B > 200) that are perfectly grayscale (R ≈ G ≈ B).
 # Normal gameplay never has more than a handful of these in the lower screen.
 # We need at least this many to be confident it's the death screen.
-WHITE_PIXEL_THRESHOLD = 100
+WHITE_PIXEL_THRESHOLD = 500
 
 # How much the R, G, B channels can differ and still count as "grayscale".
 # Death screen UI is pure white-gray; normal HUD elements are coloured.
@@ -78,7 +78,7 @@ GRAYSCALE_TOLERANCE = 15
 
 # We only scan the bottom portion of the screen where the death UI appears.
 # 0.6 = bottom 40% of screen height. Left 60% of screen width.
-SCAN_TOP_FRACTION = 0.6
+SCAN_TOP_FRACTION = 0.75
 SCAN_WIDTH_FRACTION = 0.6
 
 # After killing the game, wait this many seconds before checking again.
