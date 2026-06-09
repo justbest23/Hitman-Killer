@@ -18,6 +18,7 @@ import sys
 import time
 import argparse
 import ctypes
+import ctypes.wintypes
 import logging
 import threading
 import keyboard
@@ -100,33 +101,41 @@ log(f"Game: {game} | Kill hotkey: {hotkey} | Auto kill hotkey: {auto_kill_hotkey
 # Tweak these if you get false positives or missed triggers.
 # ============================================================
 
-# After the game first comes into focus, wait this many seconds before
-# auto kill starts watching. This prevents the loading screen / intro
-# cinematics from triggering the kill.
-STARTUP_DELAY = 30  # seconds after game process launches before auto kill activates
-
-# How many bright white grayscale pixels must be on screen to trigger.
-# The actual death screen produces ~3200 qualifying pixels (sampled at 1/3).
-# Raise this number if you get false positives.
+# --- Death screen detection ---
+# How many bright white grayscale pixels = death screen.
+# Sampled at 1/3, so ~3200 expected. Raise if false positives.
 WHITE_PIXEL_THRESHOLD = 1000
+GRAYSCALE_TOLERANCE   = 15   # how close R/G/B must be to count as "white-gray"
 
-# How much R, G, B can differ and still count as "white" (not coloured).
-GRAYSCALE_TOLERANCE = 15
+# --- HUD detection (mission-started signal) ---
+# During gameplay the lower-left HUD has reddish health-bar pixels
+# (R≈255, G≈210, B≈207). These are absent on loading screens and menus.
+# We use their presence to know a mission is active and arm auto kill.
+HUD_PIXEL_THRESHOLD   = 30   # qualifying reddish pixels needed to confirm HUD
+HUD_COLOR_DOMINANCE   = 20   # how much R must exceed G and B to count
 
-# Which part of the screen to scan. These are fractions of screen size.
-# 0.75 = start scanning 75% down the screen (bottom quarter only).
+# --- Scan region ---
+# Bottom 25% of screen height, left 60% of width — where both the
+# death screen UI and the gameplay HUD appear.
 SCAN_TOP_FRACTION   = 0.75
 SCAN_WIDTH_FRACTION = 0.6
 
-# After an auto kill, wait this long before checking again.
-KILL_COOLDOWN  = 15   # seconds
-POLL_INTERVAL  = 0.05 # seconds between checks (0.05 = 20 checks/sec)
+# --- Timing ---
+KILL_COOLDOWN = 15    # seconds to wait after a kill before re-arming
+POLL_INTERVAL = 0.05  # seconds between screen checks (0.05 = 20/sec)
 
 # ============================================================
 
+# Auto kill state machine:
+#   WAITING    — game is running but no mission detected yet (loading/menu)
+#   IN_MISSION — HUD detected, auto kill is armed and watching for death
+STATE_WAITING    = 'waiting'
+STATE_IN_MISSION = 'in_mission'
+
 # --- Shared state ---
-auto_kill_enabled = True   # toggled from tray menu or hotkey
-_tray_icon        = None   # set once the tray is running
+auto_kill_enabled = True          # toggled from tray menu or hotkey
+_tray_icon        = None          # set once the tray is running
+_auto_kill_state  = STATE_WAITING # current state machine state
 
 
 def kill_game():
@@ -157,18 +166,67 @@ def is_game_foreground():
     return False
 
 
-def count_death_pixels(frame):
+def get_game_window_rect():
     """
-    Counts bright white perfectly-grayscale pixels in the captured frame.
-    The death screen is full of these (from the MISSION FAILED overlay).
-    Normal gameplay bright pixels are coloured (reddish HUD), not white-gray.
+    Returns (left, top, width, height) of the Hitman game window, or None.
+    We capture ONLY this rectangle so nothing outside the game window can
+    ever trigger a false positive (e.g. dragging a white window over the
+    desktop while the game is running in the background).
+    """
+    EnumWindows      = ctypes.windll.user32.EnumWindows
+    GetWindowText    = ctypes.windll.user32.GetWindowTextW
+    GetWindowTextLen = ctypes.windll.user32.GetWindowTextLengthW
+    GetWindowRect    = ctypes.windll.user32.GetWindowRect
+    IsWindowVisible  = ctypes.windll.user32.IsWindowVisible
+    GetWindowThreadProcessId = ctypes.windll.user32.GetWindowThreadProcessId
 
-    Reads raw BGRA bytes from mss directly — no numpy needed.
-    Checks every 3rd pixel (stride 12) for speed.
+    # Build a set of PIDs belonging to the game process
+    game_pids = set()
+    for proc in psutil.process_iter(['pid', 'name']):
+        try:
+            if proc.info['name'].lower() == game.lower():
+                game_pids.add(proc.info['pid'])
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+    if not game_pids:
+        return None
+
+    found_rect = [None]
+
+    # HWND and LPARAM are integer handles, not pointer-to-int
+    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    def enum_callback(hwnd, lparam):
+        if not IsWindowVisible(hwnd):
+            return True
+        pid = ctypes.c_ulong()
+        GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value not in game_pids:
+            return True
+        # Skip tiny helper windows (splash screens, launchers)
+        rect = ctypes.wintypes.RECT()
+        GetWindowRect(hwnd, ctypes.byref(rect))
+        w = rect.right  - rect.left
+        h = rect.bottom - rect.top
+        if w < 400 or h < 300:
+            return True
+        found_rect[0] = (rect.left, rect.top, w, h)
+        return False  # stop enumeration — we found the main game window
+
+    EnumWindows(WNDENUMPROC(enum_callback), 0)
+    return found_rect[0]
+
+
+def count_death_pixels(raw, length):
     """
-    raw   = frame.raw  # BGRA bytes, 4 bytes per pixel
+    Counts bright white perfectly-grayscale pixels.
+    The MISSION FAILED overlay is full of these (R=G=B≈239).
+    Gameplay HUD pixels are coloured (reddish), not grayscale.
+    Stride=12 checks every 3rd pixel for speed.
+    """
     count = 0
-    for i in range(0, len(raw) - 3, 12):  # stride 12 = every 3rd pixel
+    for i in range(0, length - 3, 12):
         b = raw[i];  g = raw[i+1];  r = raw[i+2]
         if (r > 200 and g > 200 and b > 200
                 and abs(r - g) < GRAYSCALE_TOLERANCE
@@ -177,16 +235,30 @@ def count_death_pixels(frame):
     return count
 
 
-def get_game_launch_time():
+def count_hud_pixels(raw, length):
     """
-    Returns the time the game process was launched, or None if it's not running.
-    Using process launch time (not focus time) means alt-tabbing never resets
-    the startup delay — the clock starts when the exe starts, full stop.
+    Counts reddish bright pixels that indicate the gameplay HUD is visible.
+    During active gameplay the health bar produces pixels around (R=255, G=210, B=207).
+    On loading screens and menus the lower-left is dark — these pixels are absent.
+    Once we see enough of them we know a mission is active and arm auto kill.
     """
-    for proc in psutil.process_iter(['name', 'create_time']):
+    count = 0
+    for i in range(0, length - 3, 12):
+        b = raw[i];  g = raw[i+1];  r = raw[i+2]
+        # Red-dominant: clearly coloured, not grayscale
+        if (r > 200
+                and (r - g) > HUD_COLOR_DOMINANCE
+                and (r - b) > HUD_COLOR_DOMINANCE):
+            count += 1
+    return count
+
+
+def get_game_process():
+    """Returns the first running game psutil.Process, or None."""
+    for proc in psutil.process_iter(['pid', 'name']):
         try:
             if proc.info['name'].lower() == game.lower():
-                return proc.info['create_time']
+                return proc
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
     return None
@@ -194,68 +266,90 @@ def get_game_launch_time():
 
 def auto_kill_loop():
     """
-    Background thread that watches the screen for the death screen.
-    Runs forever until the app quits.
+    Background thread — runs forever, watching for mission start then death.
+
+    State machine:
+      WAITING    — game running, no mission detected yet (loading screens, menus)
+                   We look for HUD pixels (reddish health bar) to detect mission start.
+      IN_MISSION — HUD was detected = mission is active.
+                   We now watch for the death screen. State persists even if you
+                   alt-tab; it only resets when the game process exits or we kill it.
+
+    All screen captures are bounded to the Hitman window rectangle so that
+    nothing drawn outside the game window can ever trigger a false positive.
     """
-    kill_until        = 0
-    logged_delay_msg  = False  # avoid spamming the log with the delay message
+    global _auto_kill_state
+    kill_until   = 0
+    last_game_pid = None
 
     with mss.mss() as sct:
-        monitor = sct.monitors[1]  # primary monitor
-        scan_region = {
-            "top":    monitor["top"]  + int(monitor["height"] * SCAN_TOP_FRACTION),
-            "left":   monitor["left"],
-            "width":  int(monitor["width"]  * SCAN_WIDTH_FRACTION),
-            "height": int(monitor["height"] * (1.0 - SCAN_TOP_FRACTION)),
-        }
-
         while True:
             now = time.time()
 
-            # Skip if in cooldown after a kill, or if auto kill is disabled
             if now < kill_until or not auto_kill_enabled:
                 time.sleep(POLL_INTERVAL)
                 continue
 
-            # Only check when the game is the focused window
+            # --- Check game is running ---
+            game_proc = get_game_process()
+            if game_proc is None:
+                if _auto_kill_state != STATE_WAITING:
+                    log("Game exited. Resetting to waiting for next session.")
+                    _auto_kill_state = STATE_WAITING
+                last_game_pid = None
+                time.sleep(POLL_INTERVAL)
+                continue
+
+            # Detect game restart (new PID = fresh session)
+            if game_proc.pid != last_game_pid:
+                if last_game_pid is not None:
+                    log("Game restarted. Waiting for mission to start.")
+                last_game_pid = game_proc.pid
+                _auto_kill_state = STATE_WAITING
+
+            # --- Get game window bounds (NOT the full screen) ---
+            rect = get_game_window_rect()
+            if rect is None:
+                time.sleep(POLL_INTERVAL)
+                continue
+
+            win_left, win_top, win_w, win_h = rect
+
+            # Only check when the game window is in the foreground.
+            # If the game is minimised/behind another window we can't see the screen anyway.
             if not is_game_foreground():
-                logged_delay_msg = False
                 time.sleep(POLL_INTERVAL)
                 continue
 
-            # Check startup delay based on when the process actually launched —
-            # not when it came into focus, so alt-tabbing never resets the clock
-            launch_time = get_game_launch_time()
-            if launch_time is None:
-                time.sleep(POLL_INTERVAL)
-                continue
+            # Scan region = bottom 25% of the game window, left 60% of width.
+            # Both the death screen overlay and the HUD live in this area.
+            scan_region = {
+                "top":    win_top  + int(win_h * SCAN_TOP_FRACTION),
+                "left":   win_left,
+                "width":  int(win_w * SCAN_WIDTH_FRACTION),
+                "height": int(win_h * (1.0 - SCAN_TOP_FRACTION)),
+            }
 
-            elapsed = now - launch_time
-            if elapsed < STARTUP_DELAY:
-                if not logged_delay_msg:
-                    remaining = int(STARTUP_DELAY - elapsed)
-                    log(f"{game} launched. Auto kill starts in ~{remaining}s "
-                        f"(loading screen protection).")
-                    logged_delay_msg = True
-                time.sleep(POLL_INTERVAL)
-                continue
+            frame  = sct.grab(scan_region)
+            raw    = frame.raw
+            length = len(raw)
 
-            if logged_delay_msg:
-                log(f"Startup delay passed. Auto kill is now active.")
-                logged_delay_msg = False  # reset so it logs again if game restarts
+            # --- State machine ---
+            if _auto_kill_state == STATE_WAITING:
+                hud_count = count_hud_pixels(raw, length)
+                if hud_count >= HUD_PIXEL_THRESHOLD:
+                    log(f"Mission started (HUD pixels: {hud_count}). Auto kill armed.")
+                    _auto_kill_state = STATE_IN_MISSION
 
-            # Grab the screen region and count qualifying pixels
-            frame       = sct.grab(scan_region)
-            pixel_count = count_death_pixels(frame)
-
-            # Log anything suspiciously high so you can diagnose false positives
-            if pixel_count > WHITE_PIXEL_THRESHOLD * 0.4:
-                log(f"Pixel count: {pixel_count} (threshold: {WHITE_PIXEL_THRESHOLD})")
-
-            if pixel_count >= WHITE_PIXEL_THRESHOLD:
-                log(f"Death screen detected ({pixel_count} pixels). Killing {game}.")
-                kill_game()
-                kill_until = now + KILL_COOLDOWN
+            elif _auto_kill_state == STATE_IN_MISSION:
+                death_count = count_death_pixels(raw, length)
+                if death_count > WHITE_PIXEL_THRESHOLD * 0.4:
+                    log(f"Death pixel count: {death_count} (threshold: {WHITE_PIXEL_THRESHOLD})")
+                if death_count >= WHITE_PIXEL_THRESHOLD:
+                    log(f"Death screen detected ({death_count} pixels). Killing {game}.")
+                    kill_game()
+                    kill_until       = now + KILL_COOLDOWN
+                    _auto_kill_state = STATE_WAITING  # wait for next mission
 
             time.sleep(POLL_INTERVAL)
 
@@ -278,18 +372,27 @@ def on_quit(icon, menu_item):
     icon.stop()
 
 
+def get_state_label():
+    """Returns the human-readable auto kill status line shown in the tray menu."""
+    if not auto_kill_enabled:
+        return "Auto Kill: OFF"
+    if _auto_kill_state == STATE_IN_MISSION:
+        return "Auto Kill: ARMED (in mission)"
+    return "Auto Kill: waiting for mission..."
+
+
 def setup_system_tray():
     global _tray_icon
     image = Image.open(os.path.join(_DIR, "Fancy-Logo.jpg"))
 
-    # Right-click menu items:
-    #   Kill Game Now  — instant kill, same as pressing the hotkey
-    #   Auto Kill      — checkmark toggle for the death screen watcher
-    #   Quit           — closes the app
+    # Right-click menu:
+    #   Kill Game Now  — instant kill (same as the hotkey)
+    #   Auto Kill      — checkmark toggle; label shows current detection state
+    #   Quit           — exits the tray app
     menu = pystray.Menu(
         item('Kill Game Now', lambda icon, item: kill_game()),
         pystray.Menu.SEPARATOR,
-        item('Auto Kill', toggle_auto_kill, checked=lambda menu_item: auto_kill_enabled),
+        item(get_state_label, toggle_auto_kill, checked=lambda menu_item: auto_kill_enabled),
         pystray.Menu.SEPARATOR,
         item('Quit', on_quit),
     )
