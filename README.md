@@ -64,24 +64,22 @@ game = Cyberpunk2077.exe
 
 ## Stream Deck Setup
 
-There are two ways to use a Stream Deck button.
+### Recommended — Hotkey via tray app
 
-### Method 1 — Hotkey (tray app must be running)
+Run `Kill_Hitman3.exe` at startup so it sits in your tray, then bind your Stream Deck button to the same hotkey set in `config.txt`:
 
-1. Run `Kill_Hitman3.exe` as normal (it sits in the tray)
+1. Run `Kill_Hitman3.exe` (see [Optional: Run on Startup](#optional-run-on-startup))
 2. In Stream Deck software, add a **Hotkey** action to a button
-3. Set it to the same hotkey as in your `config.txt` (e.g. `F9`)
-4. Pressing the button sends that keypress, which the tray app catches and kills the game
+3. Set it to match your `config.txt` hotkey (e.g. `F9`)
+4. Pressing the button fires the keypress, the tray app catches it and kills the game
 
-### Method 2 — Direct launch (no tray app needed)
+### Alternative — Direct launch (no tray app needed)
 
-The exe accepts a `--kill` flag that kills the target process immediately and exits — no tray, no hotkey listener.
+The exe accepts a `--kill` flag that kills the target process immediately and exits.
 
 1. In Stream Deck software, add an **Open** (or **System: Open**) action to a button
 2. Point it to `Kill_Hitman3.exe --kill`
-3. Pressing the button runs the exe, kills the game, and exits instantly
-
-> Method 2 is recommended for Stream Deck users — it works even if the tray app isn't running.
+3. Pressing the button kills the game and exits instantly
 
 ---
 
