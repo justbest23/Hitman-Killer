@@ -463,7 +463,7 @@ def toggle_auto_kill(icon=None, menu_item=None):
     auto_kill_enabled = not auto_kill_enabled
     state = "ENABLED" if auto_kill_enabled else "DISABLED"
     log(f"Auto Kill {state}.")
-    toast("Hitman-Killer", f"Auto Kill {state}")
+    toast("Hitman-Killer", f"Auto Kill {state}", beep_freq=660 if auto_kill_enabled else 330)
     # Refresh the tray menu so the checkmark and label update
     if _tray_icon:
         _tray_icon.update_menu()
