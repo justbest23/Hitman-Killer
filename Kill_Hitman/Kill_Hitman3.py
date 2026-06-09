@@ -1,4 +1,6 @@
 import os
+import sys
+import argparse
 import keyboard
 import psutil
 import pystray
@@ -31,6 +33,7 @@ def kill_game():
             killed = True
     if not killed:
         print(f"{game} is not running.")
+    return killed
 
 
 def on_quit(icon, item):
@@ -46,5 +49,13 @@ def setup_system_tray():
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Kill a game process via hotkey or on demand.")
+    parser.add_argument('--kill', action='store_true', help='Kill the target process immediately and exit (use this for Stream Deck direct-launch)')
+    args = parser.parse_args()
+
+    if args.kill:
+        kill_game()
+        sys.exit(0)
+
     keyboard.add_hotkey(hotkey, kill_game)
     setup_system_tray()

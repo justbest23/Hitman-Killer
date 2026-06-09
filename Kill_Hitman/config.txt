@@ -1,2 +1,13 @@
 game = Hitman3.exe
 hotkey = ctrl+q
+
+# --- Hotkey examples ---
+# Single key:       hotkey = F9
+# Ctrl combo:       hotkey = ctrl+q
+# Shift combo:      hotkey = shift+F9
+# Multi-modifier:   hotkey = ctrl+alt+k
+#
+# --- Game examples ---
+# game = Hitman3.exe
+# game = RDR2.exe
+# game = Cyberpunk2077.exe
