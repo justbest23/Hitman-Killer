@@ -4,6 +4,7 @@ A lightweight Windows tray app that kills a target game process when you press a
 
 Works with any `.exe`, not just Hitman.
 
+The code has been STREAMER PROOFED, meaning I got Claude to add comments on pretty much every line so that dumbass streamers can understand that I'm not trying to kill their computers, only Hitman.exe!
 ---
 
 ## Requirements
