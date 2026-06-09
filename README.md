@@ -93,9 +93,19 @@ Once `Kill_Hitman3.exe` is running:
 
 ---
 
+## Game Launch Warning
+
+`game_watcher.exe` is a background process that watches for your game to start. If the game is running but `Kill_Hitman3.exe` is not, it pops up a warning dialog reminding you to start the tray app.
+
+It warns once per game session and resets automatically when the game exits.
+
+Add it to startup alongside `Kill_Hitman3.exe` (see below).
+
+---
+
 ## Optional: Run on Startup
 
-To have Hitman-Killer start automatically with Windows:
+To have both apps start automatically with Windows:
 
 1. Press `Win + R`, type `shell:startup`, press Enter
-2. Create a shortcut to `Kill_Hitman3.exe` in that folder
+2. Create shortcuts to both `Kill_Hitman3.exe` and `game_watcher.exe` in that folder
