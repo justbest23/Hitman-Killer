@@ -12,9 +12,16 @@
 # ============================================================
 
 import os     # used to find config.txt on disk
+import sys    # used to cleanly exit if already running
 import time   # used to pause between checks
 import ctypes # used to show the Windows warning popup
 import psutil # lets us see what processes are currently running
+
+# --- Single instance lock ---
+# Same idea as Kill_Hitman3.exe — prevents two copies of the watcher running.
+_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "HitmanKillerWatcherMutex")
+if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+    sys.exit(0)  # silently exit, no popup needed for a background watcher
 
 # Figure out where this script/exe lives so we can find config.txt
 _DIR = os.path.dirname(os.path.abspath(__file__))

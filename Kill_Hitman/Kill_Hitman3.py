@@ -12,11 +12,26 @@
 import os       # used to find files on your computer
 import sys      # used to cleanly exit the app
 import argparse # used to read command-line flags (like --kill)
+import ctypes   # used to talk to Windows directly (mutex + popups)
 import keyboard # listens for your hotkey in the background
 import psutil   # lets us see and control running processes
 import pystray  # creates the system tray icon
 from pystray import MenuItem as item  # used to build the tray menu
 from PIL import Image                 # used to load the tray icon image
+
+# --- Single instance lock ---
+# Creates a named mutex in Windows. If another copy of this app is already
+# running, the mutex will already exist and Windows returns error 183.
+# We catch that and bail out with a popup instead of launching a second copy.
+_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "HitmanKillerTrayMutex")
+if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+    ctypes.windll.user32.MessageBoxW(
+        0,
+        "Hitman-Killer is already running!\n\nCheck your system tray.",
+        "Hitman-Killer",
+        0x30  # warning icon
+    )
+    sys.exit(1)
 
 # Figure out where this script/exe is located on disk.
 # This makes sure config.txt and the logo are always found,
