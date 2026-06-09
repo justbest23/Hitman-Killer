@@ -23,8 +23,12 @@ _mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "HitmanKillerWatcherMu
 if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
     sys.exit(0)  # silently exit, no popup needed for a background watcher
 
-# Figure out where this script/exe lives so we can find config.txt
-_DIR = os.path.dirname(os.path.abspath(__file__))
+# Figure out where this script/exe lives so we can find config.txt.
+# Same PyInstaller fix as Kill_Hitman3.py — use sys.executable when bundled.
+if getattr(sys, 'frozen', False):
+    _DIR = os.path.dirname(sys.executable)
+else:
+    _DIR = os.path.dirname(os.path.abspath(__file__))
 
 # --- Default settings ---
 game = 'Hitman3.exe'        # the game we're watching for

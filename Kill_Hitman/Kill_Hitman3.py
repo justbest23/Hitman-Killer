@@ -34,9 +34,13 @@ if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
     sys.exit(1)
 
 # Figure out where this script/exe is located on disk.
-# This makes sure config.txt and the logo are always found,
-# no matter where you launch the app from.
-_DIR = os.path.dirname(os.path.abspath(__file__))
+# When built with PyInstaller (--onefile), __file__ points to a temporary
+# extraction folder, not where the exe actually lives. sys.executable always
+# points to the real exe, so we use that when running as a bundle.
+if getattr(sys, 'frozen', False):
+    _DIR = os.path.dirname(sys.executable)
+else:
+    _DIR = os.path.dirname(os.path.abspath(__file__))
 
 # --- Default settings (used if config.txt is missing) ---
 game = 'Hitman3.exe'  # the process name we want to kill

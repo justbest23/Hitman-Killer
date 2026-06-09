@@ -47,7 +47,10 @@ _mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "HitmanKillerAutoKillM
 if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
     sys.exit(0)
 
-_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, 'frozen', False):
+    _DIR = os.path.dirname(sys.executable)
+else:
+    _DIR = os.path.dirname(os.path.abspath(__file__))
 
 # --- Load settings ---
 game = 'Hitman3.exe'
