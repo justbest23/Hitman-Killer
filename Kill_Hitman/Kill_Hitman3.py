@@ -21,6 +21,8 @@ import ctypes
 import ctypes.wintypes
 import logging
 import threading
+import tkinter as tk
+import winsound
 import keyboard
 import psutil
 import pystray
@@ -416,7 +418,7 @@ def auto_kill_loop():
                         _auto_kill_state    = STATE_IN_MISSION
                         loading_seen_frames = 0
                         loading_gone_since  = None
-                        toast("Hitman-Killer", "Auto Kill ARMED — mission started")
+                        toast("Hitman-Killer", "Auto Kill ARMED — mission started", beep_freq=1047)
                         if _tray_icon:
                             _tray_icon.update_menu()
                 else:
@@ -442,14 +444,49 @@ def auto_kill_loop():
             time.sleep(POLL_INTERVAL)
 
 
-def toast(title, message):
+def toast(title, message, beep_freq=880):
     """
-    Shows a small Windows balloon notification from the tray icon.
-    Appears in the corner for a few seconds then disappears on its own.
-    Does nothing if the tray icon isn't set up yet.
+    Shows a small always-on-top overlay in the top-right corner of the screen.
+    Uses a frameless tkinter window so it appears over borderless fullscreen games
+    (which is Hitman's default display mode).
+
+    Also plays a short beep via winsound — this is the only notification that
+    works in true exclusive fullscreen mode where no window can appear on top.
+
+    Auto-closes after 3 seconds. Runs in its own daemon thread so it never
+    blocks the detection loop.
     """
-    if _tray_icon:
-        _tray_icon.notify(message, title)
+    # Audio cue — winsound.Beep is synchronous so run it in the thread too
+    def _show():
+        try:
+            winsound.Beep(beep_freq, 120)
+        except Exception:
+            pass
+        try:
+            root = tk.Tk()
+            root.overrideredirect(True)       # no title bar or borders
+            root.attributes('-topmost', True) # always on top of other windows
+            root.attributes('-alpha', 0.90)   # slight transparency
+            root.configure(bg='#111111')
+
+            tk.Label(root, text=title,
+                     fg='#999999', bg='#111111',
+                     font=('Segoe UI', 9)).pack(anchor='w', padx=16, pady=(10, 0))
+            tk.Label(root, text=message,
+                     fg='white', bg='#111111',
+                     font=('Segoe UI', 12, 'bold')).pack(anchor='w', padx=16, pady=(2, 12))
+
+            root.update_idletasks()
+            sw = root.winfo_screenwidth()
+            w  = root.winfo_reqwidth()
+            root.geometry(f"+{sw - w - 20}+20")  # top-right corner, 20 px inset
+
+            root.after(3000, root.destroy)
+            root.mainloop()
+        except Exception as e:
+            log(f"Toast error: {e}")
+
+    threading.Thread(target=_show, daemon=True).start()
 
 
 def toggle_auto_kill(icon=None, menu_item=None):
