@@ -2,3 +2,5 @@ keyboard
 psutil
 pystray
 Pillow
+mss
+numpy
