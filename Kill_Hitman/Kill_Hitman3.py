@@ -102,34 +102,58 @@ log(f"Game: {game} | Kill hotkey: {hotkey} | Auto kill hotkey: {auto_kill_hotkey
 # ============================================================
 
 # --- Death screen detection ---
-# How many bright white grayscale pixels = death screen.
-# Sampled at 1/3, so ~3200 expected. Raise if false positives.
+# The MISSION FAILED overlay floods the bottom-left with pure white grayscale pixels.
+# Sampled at every 3rd pixel (stride 12), we expect ~3200 qualifying samples.
+# Raise this number if you get false positives.
 WHITE_PIXEL_THRESHOLD = 1000
 GRAYSCALE_TOLERANCE   = 15   # how close R/G/B must be to count as "white-gray"
 
-# --- HUD detection (mission-started signal) ---
-# During gameplay the lower-left HUD has reddish health-bar pixels
-# (R≈255, G≈210, B≈207). These are absent on loading screens and menus.
-# We use their presence to know a mission is active and arm auto kill.
-HUD_PIXEL_THRESHOLD   = 30   # qualifying reddish pixels needed to confirm HUD
-HUD_COLOR_DOMINANCE   = 20   # how much R must exceed G and B to count
+# Death screen scan = bottom 25% of game window, left 60% of width.
+# The MISSION FAILED overlay sits here; the loading indicator does NOT
+# (it's on the right side), so there's no cross-contamination.
+DEATH_SCAN_TOP_FRAC   = 0.75
+DEATH_SCAN_WIDTH_FRAC = 0.60
 
-# --- Scan region ---
-# Bottom 25% of screen height, left 60% of width — where both the
-# death screen UI and the gameplay HUD appear.
-SCAN_TOP_FRACTION   = 0.75
-SCAN_WIDTH_FRACTION = 0.6
+# --- Loading screen detection ---
+# The "LOADING" text + icon is a fixed UI overlay in the bottom-right corner
+# of the game window. Pixel analysis of a reference screenshot gives:
+#   X: 85.2%–96.5% of width   Y: 90.1%–93.4% of height
+#   ~2728 pure white (R,G,B ≈ 255) grayscale pixels
+# We scan a slightly larger area for safety.
+# The background image behind it changes every load, but Hitman draws a dark
+# panel behind the text so the white pixels come from the UI, not the scene.
+LOADING_X_FRAC          = 0.82   # scan starts at 82% from left edge
+LOADING_Y_FRAC          = 0.88   # scan starts at 88% from top edge
+LOADING_W_FRAC          = 0.18   # scan is 18% of window width
+LOADING_H_FRAC          = 0.12   # scan is 12% of window height
+LOADING_PIXEL_THRESHOLD = 150    # qualifying white pixels to confirm loading screen
+                                  # (expected ~900 at stride-3 sampling; 150 is conservative)
+
+# --- Hysteresis / grace period ---
+# Require N consecutive frames of loading screen presence before entering LOADING state.
+# This prevents a single bright frame (e.g. a cutscene flash) from triggering a false load.
+LOADING_CONFIRM_FRAMES = 3   # consecutive frames needed to confirm loading screen
+
+# After the loading screen disappears, wait this many seconds before arming auto kill.
+# Hitman plays a short intro/spawn cinematic after loading; we don't want to fire
+# during that window. 5 seconds gives it time to settle into live gameplay.
+MISSION_START_DELAY = 5.0    # seconds after loading screen gone before auto kill arms
 
 # --- Timing ---
 KILL_COOLDOWN = 15    # seconds to wait after a kill before re-arming
-POLL_INTERVAL = 0.05  # seconds between screen checks (0.05 = 20/sec)
+POLL_INTERVAL = 0.05  # seconds between screen checks (0.05 = 20 checks/sec)
 
 # ============================================================
 
 # Auto kill state machine:
-#   WAITING    — game is running but no mission detected yet (loading/menu)
-#   IN_MISSION — HUD detected, auto kill is armed and watching for death
+#   WAITING    — game running, watching for the loading screen to appear
+#   LOADING    — loading screen detected, now waiting for it to disappear
+#   IN_MISSION — loading screen gone = mission started, auto kill is armed
+#
+# State persists through alt-tabs; only resets when the game process exits
+# or is killed.
 STATE_WAITING    = 'waiting'
+STATE_LOADING    = 'loading'
 STATE_IN_MISSION = 'in_mission'
 
 # --- Shared state ---
@@ -235,20 +259,24 @@ def count_death_pixels(raw, length):
     return count
 
 
-def count_hud_pixels(raw, length):
+def count_loading_pixels(raw, length):
     """
-    Counts reddish bright pixels that indicate the gameplay HUD is visible.
-    During active gameplay the health bar produces pixels around (R=255, G=210, B=207).
-    On loading screens and menus the lower-left is dark — these pixels are absent.
-    Once we see enough of them we know a mission is active and arm auto kill.
+    Counts pure white near-grayscale pixels that make up the "LOADING" text
+    and icon in the bottom-right corner of the game window.
+
+    Reference: 2728 qualifying pixels at R=G=B≈255 in a 286x47 px area.
+    At stride-3 sampling we expect ~900; threshold is set to 150 for safety.
+
+    The dark panel Hitman draws behind the text means these white pixels come
+    from the UI overlay, not from the background image — so this works across
+    all loading screen backgrounds.
     """
     count = 0
     for i in range(0, length - 3, 12):
         b = raw[i];  g = raw[i+1];  r = raw[i+2]
-        # Red-dominant: clearly coloured, not grayscale
-        if (r > 200
-                and (r - g) > HUD_COLOR_DOMINANCE
-                and (r - b) > HUD_COLOR_DOMINANCE):
+        if (r > 220 and g > 220 and b > 220
+                and abs(r - g) < GRAYSCALE_TOLERANCE
+                and abs(g - b) < GRAYSCALE_TOLERANCE):
             count += 1
     return count
 
@@ -266,21 +294,26 @@ def get_game_process():
 
 def auto_kill_loop():
     """
-    Background thread — runs forever, watching for mission start then death.
+    Background thread — runs forever. Implements a 3-state machine:
 
-    State machine:
-      WAITING    — game running, no mission detected yet (loading screens, menus)
-                   We look for HUD pixels (reddish health bar) to detect mission start.
-      IN_MISSION — HUD was detected = mission is active.
-                   We now watch for the death screen. State persists even if you
-                   alt-tab; it only resets when the game process exits or we kill it.
+      WAITING    — watching the bottom-right corner for the "LOADING" text to appear.
+      LOADING    — loading screen is visible; waiting for it to disappear.
+      IN_MISSION — loading screen gone = mission started; watching for death screen.
 
-    All screen captures are bounded to the Hitman window rectangle so that
-    nothing drawn outside the game window can ever trigger a false positive.
+    All captures are bounded to the Hitman game window (found by PID via EnumWindows),
+    so content on other windows or monitors can never trigger a false positive.
+    Fractions are used for all regions, so any resolution and any monitor works.
+
+    State only resets when the game process exits or is killed — alt-tabbing
+    in and out of the game does NOT affect the state.
     """
     global _auto_kill_state
-    kill_until   = 0
+    kill_until    = 0
     last_game_pid = None
+
+    # Hysteresis / grace period tracking — see constants at top of file
+    loading_seen_frames = 0
+    loading_gone_since  = None  # timestamp when loading screen first disappeared
 
     with mss.mss() as sct:
         while True:
@@ -295,19 +328,27 @@ def auto_kill_loop():
             if game_proc is None:
                 if _auto_kill_state != STATE_WAITING:
                     log("Game exited. Resetting to waiting for next session.")
-                    _auto_kill_state = STATE_WAITING
+                    _auto_kill_state    = STATE_WAITING
+                    loading_seen_frames = 0
+                    loading_gone_since  = None
+                    if _tray_icon:
+                        _tray_icon.update_menu()
                 last_game_pid = None
                 time.sleep(POLL_INTERVAL)
                 continue
 
-            # Detect game restart (new PID = fresh session)
+            # Detect game restart (new PID = new session, reset state)
             if game_proc.pid != last_game_pid:
                 if last_game_pid is not None:
-                    log("Game restarted. Waiting for mission to start.")
-                last_game_pid = game_proc.pid
-                _auto_kill_state = STATE_WAITING
+                    log("Game restarted. Waiting for loading screen.")
+                last_game_pid       = game_proc.pid
+                _auto_kill_state    = STATE_WAITING
+                loading_seen_frames = 0
+                loading_gone_since  = None
+                if _tray_icon:
+                    _tray_icon.update_menu()
 
-            # --- Get game window bounds (NOT the full screen) ---
+            # --- Find game window (works on any monitor, any position) ---
             rect = get_game_window_rect()
             if rect is None:
                 time.sleep(POLL_INTERVAL)
@@ -315,44 +356,86 @@ def auto_kill_loop():
 
             win_left, win_top, win_w, win_h = rect
 
-            # Only check when the game window is in the foreground.
-            # If the game is minimised/behind another window we can't see the screen anyway.
+            # Only analyse pixels when the game is in the foreground.
+            # If it's minimised or hidden behind another window, the screen
+            # doesn't show gameplay so there's nothing useful to check.
             if not is_game_foreground():
                 time.sleep(POLL_INTERVAL)
                 continue
 
-            # Scan region = bottom 25% of the game window, left 60% of width.
-            # Both the death screen overlay and the HUD live in this area.
-            scan_region = {
-                "top":    win_top  + int(win_h * SCAN_TOP_FRACTION),
-                "left":   win_left,
-                "width":  int(win_w * SCAN_WIDTH_FRACTION),
-                "height": int(win_h * (1.0 - SCAN_TOP_FRACTION)),
+            # --- Two separate scan regions, both relative to game window ---
+
+            # 1. Loading indicator: bottom-right corner ("LOADING" text + icon).
+            #    X: 82%-100% of window width   Y: 88%-100% of window height
+            loading_region = {
+                "top":    win_top  + int(win_h * LOADING_Y_FRAC),
+                "left":   win_left + int(win_w * LOADING_X_FRAC),
+                "width":  int(win_w * LOADING_W_FRAC),
+                "height": int(win_h * LOADING_H_FRAC),
             }
 
-            frame  = sct.grab(scan_region)
-            raw    = frame.raw
-            length = len(raw)
+            # 2. Death screen: bottom-left area (MISSION FAILED overlay).
+            #    X: 0%-60% of window width     Y: 75%-100% of window height
+            death_region = {
+                "top":    win_top  + int(win_h * DEATH_SCAN_TOP_FRAC),
+                "left":   win_left,
+                "width":  int(win_w * DEATH_SCAN_WIDTH_FRAC),
+                "height": int(win_h * (1.0 - DEATH_SCAN_TOP_FRAC)),
+            }
 
             # --- State machine ---
+
             if _auto_kill_state == STATE_WAITING:
-                hud_count = count_hud_pixels(raw, length)
-                if hud_count >= HUD_PIXEL_THRESHOLD:
-                    log(f"Mission started (HUD pixels: {hud_count}). Auto kill armed.")
-                    _auto_kill_state = STATE_IN_MISSION
-                    toast("Hitman-Killer", "Auto Kill ARMED — mission detected")
-                    if _tray_icon:
-                        _tray_icon.update_menu()
+                # Look for the loading screen to appear
+                lf     = sct.grab(loading_region)
+                lcount = count_loading_pixels(lf.raw, len(lf.raw))
+                if lcount >= LOADING_PIXEL_THRESHOLD:
+                    loading_seen_frames += 1
+                    if loading_seen_frames >= LOADING_CONFIRM_FRAMES:
+                        log(f"Loading screen detected ({lcount} pixels). Waiting for it to end.")
+                        _auto_kill_state   = STATE_LOADING
+                        loading_gone_since = None
+                        if _tray_icon:
+                            _tray_icon.update_menu()
+                else:
+                    loading_seen_frames = 0
+
+            elif _auto_kill_state == STATE_LOADING:
+                # Loading screen confirmed visible — now wait for it to disappear,
+                # then hold for MISSION_START_DELAY seconds before arming.
+                lf     = sct.grab(loading_region)
+                lcount = count_loading_pixels(lf.raw, len(lf.raw))
+                if lcount < LOADING_PIXEL_THRESHOLD:
+                    # Loading screen gone — start (or continue) the countdown
+                    if loading_gone_since is None:
+                        loading_gone_since = now
+                        remaining = int(MISSION_START_DELAY)
+                        log(f"Loading screen gone. Arming in {remaining}s.")
+                    elif now - loading_gone_since >= MISSION_START_DELAY:
+                        log("Auto kill ARMED.")
+                        _auto_kill_state    = STATE_IN_MISSION
+                        loading_seen_frames = 0
+                        loading_gone_since  = None
+                        toast("Hitman-Killer", "Auto Kill ARMED — mission started")
+                        if _tray_icon:
+                            _tray_icon.update_menu()
+                else:
+                    # Loading screen reappeared — reset the gone-timer
+                    loading_gone_since = None
 
             elif _auto_kill_state == STATE_IN_MISSION:
-                death_count = count_death_pixels(raw, length)
+                # Armed — watch for the death screen in the bottom-left
+                df          = sct.grab(death_region)
+                death_count = count_death_pixels(df.raw, len(df.raw))
                 if death_count > WHITE_PIXEL_THRESHOLD * 0.4:
                     log(f"Death pixel count: {death_count} (threshold: {WHITE_PIXEL_THRESHOLD})")
                 if death_count >= WHITE_PIXEL_THRESHOLD:
                     log(f"Death screen detected ({death_count} pixels). Killing {game}.")
                     kill_game()
-                    kill_until       = now + KILL_COOLDOWN
-                    _auto_kill_state = STATE_WAITING  # wait for next mission
+                    kill_until          = now + KILL_COOLDOWN
+                    _auto_kill_state    = STATE_WAITING
+                    loading_seen_frames = 0
+                    loading_gone_since  = None
                     if _tray_icon:
                         _tray_icon.update_menu()
 
@@ -393,8 +476,10 @@ def get_state_label(menu_item=None):
     if not auto_kill_enabled:
         return "Auto Kill: OFF"
     if _auto_kill_state == STATE_IN_MISSION:
-        return "Auto Kill: ARMED (in mission)"
-    return "Auto Kill: waiting for mission..."
+        return "Auto Kill: ARMED"
+    if _auto_kill_state == STATE_LOADING:
+        return "Auto Kill: loading screen..."
+    return "Auto Kill: waiting for loading screen"
 
 
 def setup_system_tray():
