@@ -38,17 +38,12 @@ jobs:
         working-directory: Kill_Hitman
         run: pyinstaller --onefile --noconsole game_watcher.py --distpath .
 
-      - name: Build auto_kill.exe
-        working-directory: Kill_Hitman
-        run: pyinstaller --onefile --noconsole auto_kill.py --distpath .
-
       - name: Package release zip
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path release
           Copy-Item Kill_Hitman\Kill_Hitman3.exe  release\
           Copy-Item Kill_Hitman\game_watcher.exe  release\
-          Copy-Item Kill_Hitman\auto_kill.exe     release\
           Copy-Item Kill_Hitman\config.txt        release\
           Copy-Item Kill_Hitman\Fancy-Logo.jpg    release\
           Compress-Archive -Path release\* -DestinationPath Hitman-Killer.zip

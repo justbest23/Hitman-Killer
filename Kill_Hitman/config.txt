@@ -1,6 +1,10 @@
 game = Hitman3.exe
 hotkey = ctrl+q
 
+# Hotkey to toggle Auto Kill on/off from your keyboard (optional).
+# Leave blank to disable. Right-click the tray icon to toggle with the mouse.
+auto_kill_hotkey = ctrl+shift+k
+
 # --- Hotkey examples ---
 # Single key:       hotkey = F9
 # Ctrl combo:       hotkey = ctrl+q

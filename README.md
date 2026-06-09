@@ -12,9 +12,8 @@ The code has been STREAMER PROOFED, meaning I got Claude to add comments on pret
 
 | File | What it does |
 |------|-------------|
-| `Kill_Hitman3.exe` | Sits in your system tray and kills the game when you press your hotkey |
-| `game_watcher.exe` | Runs in the background and warns you if the game launches without the tray app running |
-| `auto_kill.exe` | Watches your screen and kills the game automatically the moment the Freelancer death screen appears |
+| `Kill_Hitman3.exe` | Sits in your system tray. Kills the game on hotkey press and auto-detects the Freelancer death screen. Right-click to toggle Auto Kill on/off. |
+| `game_watcher.exe` | Runs silently in the background and warns you if the game launches without the tray app running. |
 
 ---
 
