@@ -340,6 +340,9 @@ def auto_kill_loop():
                 if hud_count >= HUD_PIXEL_THRESHOLD:
                     log(f"Mission started (HUD pixels: {hud_count}). Auto kill armed.")
                     _auto_kill_state = STATE_IN_MISSION
+                    toast("Hitman-Killer", "Auto Kill ARMED — mission detected")
+                    if _tray_icon:
+                        _tray_icon.update_menu()
 
             elif _auto_kill_state == STATE_IN_MISSION:
                 death_count = count_death_pixels(raw, length)
@@ -350,8 +353,20 @@ def auto_kill_loop():
                     kill_game()
                     kill_until       = now + KILL_COOLDOWN
                     _auto_kill_state = STATE_WAITING  # wait for next mission
+                    if _tray_icon:
+                        _tray_icon.update_menu()
 
             time.sleep(POLL_INTERVAL)
+
+
+def toast(title, message):
+    """
+    Shows a small Windows balloon notification from the tray icon.
+    Appears in the corner for a few seconds then disappears on its own.
+    Does nothing if the tray icon isn't set up yet.
+    """
+    if _tray_icon:
+        _tray_icon.notify(message, title)
 
 
 def toggle_auto_kill(icon=None, menu_item=None):
@@ -360,7 +375,8 @@ def toggle_auto_kill(icon=None, menu_item=None):
     auto_kill_enabled = not auto_kill_enabled
     state = "ENABLED" if auto_kill_enabled else "DISABLED"
     log(f"Auto Kill {state}.")
-    # Refresh the tray menu so the checkmark updates
+    toast("Hitman-Killer", f"Auto Kill {state}")
+    # Refresh the tray menu so the checkmark and label update
     if _tray_icon:
         _tray_icon.update_menu()
 
@@ -372,7 +388,7 @@ def on_quit(icon, menu_item):
     icon.stop()
 
 
-def get_state_label():
+def get_state_label(menu_item=None):
     """Returns the human-readable auto kill status line shown in the tray menu."""
     if not auto_kill_enabled:
         return "Auto Kill: OFF"
