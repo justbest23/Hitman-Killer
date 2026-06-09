@@ -26,13 +26,11 @@ import sys
 import time
 import ctypes
 import psutil
-import numpy as np
 
 # mss is a fast screen-capture library — much lighter than PIL.ImageGrab
 try:
     import mss
 except ImportError:
-    # Friendly error if mss wasn't installed
     ctypes.windll.user32.MessageBoxW(
         0,
         "Missing dependency: mss\n\nRun install_the_things.bat to fix this.",
@@ -73,14 +71,15 @@ POLL_INTERVAL = 0.05
 # (R > 200, G > 200, B > 200) that are perfectly grayscale (R ≈ G ≈ B).
 # Normal gameplay never has more than a handful of these in the lower screen.
 # We need at least this many to be confident it's the death screen.
-WHITE_PIXEL_THRESHOLD = 500
+# Note: we sample every 3rd pixel for speed, so raw counts are scaled down ~3x.
+WHITE_PIXEL_THRESHOLD = 170
 
 # How much the R, G, B channels can differ and still count as "grayscale".
 # Death screen UI is pure white-gray; normal HUD elements are coloured.
 GRAYSCALE_TOLERANCE = 15
 
 # We only scan the bottom portion of the screen where the death UI appears.
-# 0.6 = bottom 40% of screen height. Left 60% of screen width.
+# 0.75 = scan the bottom 25% of screen height. Left 60% of screen width.
 SCAN_TOP_FRACTION = 0.75
 SCAN_WIDTH_FRACTION = 0.6
 
@@ -111,26 +110,33 @@ def kill_game():
             proc.kill()
 
 
-def count_death_pixels(img_array):
+def count_death_pixels(frame):
     """
     Count pixels that look like the death screen's bright white UI elements.
-    These are pixels that are:
-      1. Bright (R > 200, G > 200, B > 200)
-      2. Grayscale (R ≈ G ≈ B) — the death UI is white/gray, not coloured
-    Normal gameplay has bright pixels but they're coloured (e.g. reddish health
-    bar), so they fail the grayscale check.
-    """
-    r = img_array[:, :, 0].astype(np.int16)
-    g = img_array[:, :, 1].astype(np.int16)
-    b = img_array[:, :, 2].astype(np.int16)
+    Works directly on the raw BGRA bytes from mss — no numpy needed.
 
-    bright = (r > 200) & (g > 200) & (b > 200)
-    grayscale = (
-        (np.abs(r - g) < GRAYSCALE_TOLERANCE) &
-        (np.abs(g - b) < GRAYSCALE_TOLERANCE) &
-        (np.abs(r - b) < GRAYSCALE_TOLERANCE)
-    )
-    return int(np.sum(bright & grayscale))
+    We check every 3rd pixel (stride of 12 bytes: 4 bytes per BGRA pixel x 3)
+    to keep CPU usage low. The death screen has ~9700 qualifying pixels so
+    even at 1/3 sampling we're well above the threshold.
+
+    Qualifying pixel:
+      - Bright:    R > 200, G > 200, B > 200
+      - Grayscale: R ≈ G ≈ B (channels within GRAYSCALE_TOLERANCE of each other)
+    Normal gameplay's bright pixels are coloured (e.g. reddish health bar)
+    so they fail the grayscale check.
+    """
+    raw = frame.raw   # BGRA bytes — 4 bytes per pixel
+    count = 0
+    # Stride of 12 = skip 2 pixels each step (4 bytes/pixel x 3)
+    for i in range(0, len(raw) - 3, 12):
+        b = raw[i]
+        g = raw[i + 1]
+        r = raw[i + 2]
+        if (r > 200 and g > 200 and b > 200
+                and abs(r - g) < GRAYSCALE_TOLERANCE
+                and abs(g - b) < GRAYSCALE_TOLERANCE):
+            count += 1
+    return count
 
 
 # --- Main loop ---
@@ -139,7 +145,7 @@ kill_until = 0
 with mss.mss() as sct:
     monitor = sct.monitors[1]  # primary monitor
 
-    # Calculate the scan region once (bottom portion, left side of screen)
+    # Calculate the scan region once (bottom 25%, left 60% of screen)
     scan_region = {
         "top":    monitor["top"]  + int(monitor["height"] * SCAN_TOP_FRACTION),
         "left":   monitor["left"],
@@ -160,13 +166,11 @@ with mss.mss() as sct:
             time.sleep(POLL_INTERVAL)
             continue
 
-        # Grab the scan region and convert to a numpy array (very fast)
-        frame = np.array(sct.grab(scan_region))
+        # Grab the scan region (raw BGRA bytes, no conversion needed)
+        frame = sct.grab(scan_region)
 
         # Count the bright grayscale pixels that signal the death screen
-        death_pixels = count_death_pixels(frame)
-
-        if death_pixels >= WHITE_PIXEL_THRESHOLD:
+        if count_death_pixels(frame) >= WHITE_PIXEL_THRESHOLD:
             kill_game()
             kill_until = now + KILL_COOLDOWN
 

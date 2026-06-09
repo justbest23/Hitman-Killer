@@ -40,7 +40,7 @@ jobs:
 
       - name: Build auto_kill.exe
         working-directory: Kill_Hitman
-        run: pyinstaller --onefile --noconsole --collect-all numpy auto_kill.py --distpath .
+        run: pyinstaller --onefile --noconsole auto_kill.py --distpath .
 
       - name: Package release zip
         shell: pwsh
