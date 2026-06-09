@@ -1,65 +1,73 @@
 # Hitman-Killer
 
-A lightweight Windows tray app that kills a target game process when you press a hotkey — or when triggered directly from a Stream Deck button.
+A lightweight Windows tray app that kills a target game process when you press a hotkey — or automatically when the Freelancer death screen is detected.
 
 Works with any `.exe`, not just Hitman.
 
 The code has been STREAMER PROOFED, meaning I got Claude to add comments on pretty much every line so that dumbass streamers can understand that I'm not trying to kill their computers, only Hitman.exe!
----
-
-## Requirements
-
-- Windows 10/11
-- [Python 3.8+](https://www.digitalocean.com/community/tutorials/install-python-windows-10) (only needed to build the exe yourself)
 
 ---
 
-## Quick Start (pre-built exe)
+## What's included
 
-1. Download and unzip the latest release from the [Releases](../../releases) page
-2. Edit `config.txt` to set your hotkey and target game (see [Configuration](#configuration))
-3. Run `Kill_Hitman3.exe`
-4. The app sits in your system tray and listens for your hotkey
+| File | What it does |
+|------|-------------|
+| `Kill_Hitman3.exe` | Sits in your system tray and kills the game when you press your hotkey |
+| `game_watcher.exe` | Runs in the background and warns you if the game launches without the tray app running |
+| `auto_kill.exe` | Watches your screen and kills the game automatically the moment the Freelancer death screen appears |
 
----
-
-## Build from Source
-
-1. Install Python 3.8+
-2. Open a terminal in the `Kill_Hitman` folder
-3. Run `install_the_things.bat` — this installs dependencies and builds the exe
-4. Your antivirus may warn about unsigned software — click **Run Anyway**
-5. `Kill_Hitman3.exe` will appear in the same folder
+You need to build these yourself — see below. It takes about 2 minutes.
 
 ---
 
-## Configuration
+## Setup
 
-Edit `config.txt` before running:
+### 1. Install Python
+
+Download and install Python 3.8 or newer from [python.org](https://www.python.org/downloads/).
+
+> During install, tick **"Add Python to PATH"** — this is important.
+
+### 2. Download the files
+
+Click the green **Code** button at the top of this page → **Download ZIP**. Extract it somewhere permanent (e.g. `C:\Hitman-Killer\`).
+
+### 3. Build the apps
+
+Open the `Kill_Hitman` folder, then double-click `install_the_things.bat`.
+
+This will:
+- Install the required Python libraries
+- Build `Kill_Hitman3.exe`, `game_watcher.exe`, and `auto_kill.exe` in the same folder
+
+> Your antivirus may warn about unsigned software — click **Run Anyway**. This is normal for self-built Python apps.
+
+### 4. Configure your hotkey (optional)
+
+Open `config.txt` and set your hotkey and target game:
 
 ```
 game = Hitman3.exe
 hotkey = ctrl+q
 ```
 
-### Hotkey options
+**Hotkey examples:**
 
-| Format | Example | Notes |
-|--------|---------|-------|
-| Single key | `hotkey = F9` | Any function key or letter works |
-| Ctrl combo | `hotkey = ctrl+q` | Default |
-| Shift combo | `hotkey = shift+F9` | |
-| Multi-modifier | `hotkey = ctrl+alt+k` | |
+| Format | Example |
+|--------|---------|
+| Single key | `hotkey = F9` |
+| Ctrl combo | `hotkey = ctrl+q` |
+| Shift combo | `hotkey = shift+F9` |
+| Multi-modifier | `hotkey = ctrl+alt+k` |
 
-### Game options
+### 5. Run the apps
 
-Set `game` to the exact `.exe` name of the process you want to kill (case-insensitive):
+Launch all three:
+- `Kill_Hitman3.exe` — appears in your system tray (bottom-right)
+- `game_watcher.exe` — runs silently in the background
+- `auto_kill.exe` — runs silently in the background
 
-```
-game = Hitman3.exe
-game = RDR2.exe
-game = Cyberpunk2077.exe
-```
+To have them start automatically with Windows, see [Run on Startup](#run-on-startup) below.
 
 ---
 
@@ -69,7 +77,7 @@ game = Cyberpunk2077.exe
 
 Run `Kill_Hitman3.exe` at startup so it sits in your tray, then bind your Stream Deck button to the same hotkey set in `config.txt`:
 
-1. Run `Kill_Hitman3.exe` (see [Optional: Run on Startup](#optional-run-on-startup))
+1. Run `Kill_Hitman3.exe` (see [Run on Startup](#run-on-startup))
 2. In Stream Deck software, add a **Hotkey** action to a button
 3. Set it to match your `config.txt` hotkey (e.g. `F9`)
 4. Pressing the button fires the keypress, the tray app catches it and kills the game
@@ -84,29 +92,9 @@ The exe accepts a `--kill` flag that kills the target process immediately and ex
 
 ---
 
-## Usage
+## Run on Startup
 
-Once `Kill_Hitman3.exe` is running:
-
-- Press your configured hotkey to kill the target process
-- The tray icon tooltip shows the active hotkey (e.g. `Hitman-Killer (ctrl+q)`)
-- Right-click the tray icon and select **Quit** to exit
-
----
-
-## Game Launch Warning
-
-`game_watcher.exe` is a background process that watches for your game to start. If the game is running but `Kill_Hitman3.exe` is not, it pops up a warning dialog reminding you to start the tray app.
-
-It warns once per game session and resets automatically when the game exits.
-
-Add it to startup alongside `Kill_Hitman3.exe` (see below).
-
----
-
-## Optional: Run on Startup
-
-To have both apps start automatically with Windows:
+To have all three apps start automatically with Windows:
 
 1. Press `Win + R`, type `shell:startup`, press Enter
-2. Create shortcuts to both `Kill_Hitman3.exe` and `game_watcher.exe` in that folder
+2. Create shortcuts to `Kill_Hitman3.exe`, `game_watcher.exe`, and `auto_kill.exe` in that folder
