@@ -16,33 +16,19 @@ The code has been STREAMER PROOFED, meaning I got Claude to add comments on pret
 | `game_watcher.exe` | Runs in the background and warns you if the game launches without the tray app running |
 | `auto_kill.exe` | Watches your screen and kills the game automatically the moment the Freelancer death screen appears |
 
-You need to build these yourself — see below. It takes about 2 minutes.
-
 ---
 
 ## Setup
 
-### 1. Install Python
+### 1. Download the latest release
 
-Download and install Python 3.8 or newer from [python.org](https://www.python.org/downloads/).
+Go to the [Releases](../../releases/latest) page and download `Hitman-Killer.zip`. Extract it somewhere permanent (e.g. `C:\Hitman-Killer\`).
 
-> During install, tick **"Add Python to PATH"** — this is important.
+The zip contains all three pre-built exes plus `config.txt` and the logo — no Python needed.
 
-### 2. Download the files
+> Your antivirus may warn about unsigned software — click **Run Anyway**. This is normal for unsigned community tools.
 
-Click the green **Code** button at the top of this page → **Download ZIP**. Extract it somewhere permanent (e.g. `C:\Hitman-Killer\`).
-
-### 3. Build the apps
-
-Open the `Kill_Hitman` folder, then double-click `install_the_things.bat`.
-
-This will:
-- Install the required Python libraries
-- Build `Kill_Hitman3.exe`, `game_watcher.exe`, and `auto_kill.exe` in the same folder
-
-> Your antivirus may warn about unsigned software — click **Run Anyway**. This is normal for self-built Python apps.
-
-### 4. Configure your hotkey (optional)
+### 2. Configure your hotkey (optional)
 
 Open `config.txt` and set your hotkey and target game:
 
@@ -98,3 +84,15 @@ To have all three apps start automatically with Windows:
 
 1. Press `Win + R`, type `shell:startup`, press Enter
 2. Create shortcuts to `Kill_Hitman3.exe`, `game_watcher.exe`, and `auto_kill.exe` in that folder
+
+---
+
+## Build from Source
+
+If you'd rather build the exes yourself:
+
+1. Install [Python 3.11](https://www.python.org/downloads/) — tick **"Add Python to PATH"** during install
+2. Download this repo (green **Code** button → **Download ZIP**) and extract it
+3. Open the `Kill_Hitman` folder and double-click `install_the_things.bat`
+
+This installs all dependencies and builds all three exes in the same folder.

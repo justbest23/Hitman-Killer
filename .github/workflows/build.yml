@@ -1,0 +1,62 @@
+name: Build and Release
+
+# Runs automatically when you push a version tag (e.g. v1.1, v2.0)
+# Also has a manual trigger so you can build any time from GitHub's Actions tab
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed to create GitHub releases
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        working-directory: Kill_Hitman
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Build Kill_Hitman3.exe
+        working-directory: Kill_Hitman
+        run: pyinstaller --onefile --noconsole Kill_Hitman3.py --distpath .
+
+      - name: Build game_watcher.exe
+        working-directory: Kill_Hitman
+        run: pyinstaller --onefile --noconsole game_watcher.py --distpath .
+
+      - name: Build auto_kill.exe
+        working-directory: Kill_Hitman
+        run: pyinstaller --onefile --noconsole --collect-all numpy auto_kill.py --distpath .
+
+      - name: Package release zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release
+          Copy-Item Kill_Hitman\Kill_Hitman3.exe  release\
+          Copy-Item Kill_Hitman\game_watcher.exe  release\
+          Copy-Item Kill_Hitman\auto_kill.exe     release\
+          Copy-Item Kill_Hitman\config.txt        release\
+          Copy-Item Kill_Hitman\Fancy-Logo.jpg    release\
+          Compress-Archive -Path release\* -DestinationPath Hitman-Killer.zip
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Hitman-Killer.zip
+          generate_release_notes: true
+          # If triggered manually (not via tag), mark it as a pre-release
+          prerelease: ${{ github.event_name == 'workflow_dispatch' }}
