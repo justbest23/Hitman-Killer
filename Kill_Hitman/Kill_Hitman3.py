@@ -103,7 +103,7 @@ log(f"Game: {game} | Kill hotkey: {hotkey} | Auto kill hotkey: {auto_kill_hotkey
 # After the game first comes into focus, wait this many seconds before
 # auto kill starts watching. This prevents the loading screen / intro
 # cinematics from triggering the kill.
-STARTUP_DELAY = 60  # seconds
+STARTUP_DELAY = 30  # seconds after game process launches before auto kill activates
 
 # How many bright white grayscale pixels must be on screen to trigger.
 # The actual death screen produces ~3200 qualifying pixels (sampled at 1/3).
@@ -125,9 +125,8 @@ POLL_INTERVAL  = 0.05 # seconds between checks (0.05 = 20 checks/sec)
 # ============================================================
 
 # --- Shared state ---
-auto_kill_enabled  = True   # toggled from tray menu or hotkey
-_tray_icon         = None   # set once the tray is running
-_game_first_seen   = None   # timestamp of when game first came into focus
+auto_kill_enabled = True   # toggled from tray menu or hotkey
+_tray_icon        = None   # set once the tray is running
 
 
 def kill_game():
@@ -178,13 +177,28 @@ def count_death_pixels(frame):
     return count
 
 
+def get_game_launch_time():
+    """
+    Returns the time the game process was launched, or None if it's not running.
+    Using process launch time (not focus time) means alt-tabbing never resets
+    the startup delay — the clock starts when the exe starts, full stop.
+    """
+    for proc in psutil.process_iter(['name', 'create_time']):
+        try:
+            if proc.info['name'].lower() == game.lower():
+                return proc.info['create_time']
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return None
+
+
 def auto_kill_loop():
     """
     Background thread that watches the screen for the death screen.
     Runs forever until the app quits.
     """
-    global _game_first_seen
-    kill_until = 0
+    kill_until        = 0
+    logged_delay_msg  = False  # avoid spamming the log with the delay message
 
     with mss.mss() as sct:
         monitor = sct.monitors[1]  # primary monitor
@@ -205,23 +219,30 @@ def auto_kill_loop():
 
             # Only check when the game is the focused window
             if not is_game_foreground():
-                if _game_first_seen is not None:
-                    log(f"{game} left foreground. Resetting startup delay.")
-                _game_first_seen = None
+                logged_delay_msg = False
                 time.sleep(POLL_INTERVAL)
                 continue
 
-            # Record the first time we see the game in focus
-            if _game_first_seen is None:
-                _game_first_seen = now
-                log(f"{game} in foreground. Auto kill active in {STARTUP_DELAY}s "
-                    f"(protects against loading screen false triggers).")
+            # Check startup delay based on when the process actually launched —
+            # not when it came into focus, so alt-tabbing never resets the clock
+            launch_time = get_game_launch_time()
+            if launch_time is None:
+                time.sleep(POLL_INTERVAL)
+                continue
 
-            # Hold off during the startup delay (loading screen protection)
-            elapsed = now - _game_first_seen
+            elapsed = now - launch_time
             if elapsed < STARTUP_DELAY:
+                if not logged_delay_msg:
+                    remaining = int(STARTUP_DELAY - elapsed)
+                    log(f"{game} launched. Auto kill starts in ~{remaining}s "
+                        f"(loading screen protection).")
+                    logged_delay_msg = True
                 time.sleep(POLL_INTERVAL)
                 continue
+
+            if logged_delay_msg:
+                log(f"Startup delay passed. Auto kill is now active.")
+                logged_delay_msg = False  # reset so it logs again if game restarts
 
             # Grab the screen region and count qualifying pixels
             frame       = sct.grab(scan_region)
